@@ -1,0 +1,83 @@
+
+name: Build Ambiorix Pay APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Encontrar proyecto Android
+        id: project
+        shell: bash
+        run: |
+          PROJECT_DIR=""
+
+          while IFS= read -r file; do
+            DIR="$(dirname "$file")"
+
+            if [ -f "$DIR/gradlew" ] || \
+               [ -f "$DIR/gradle/wrapper/gradle-wrapper.properties" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find . -type f \( \
+            -name settings.gradle -o \
+            -name settings.gradle.kts \
+          \) -not -path '*/.gradle/*' | sort)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: No se encontró el proyecto Android."
+            echo "Comprueba que settings.gradle o settings.gradle.kts esté en el repositorio."
+            exit 1
+          fi
+
+          echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Dar permisos al Gradle Wrapper
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: |
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+          fi
+
+      - name: Compilar APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            echo "ERROR: Falta gradlew en la carpeta del proyecto."
+            echo "El repositorio debe incluir el Gradle Wrapper."
+            exit 1
+          fi
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmbiorixPay-debug-apk
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
