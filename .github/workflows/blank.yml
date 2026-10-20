@@ -1,29 +1,74 @@
 
-      - name: Dar permisos al Gradle Wrapper
+name: Build Ambiorix Pay APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Buscar proyecto Android
+        id: project
+        shell: bash
+        run: |
+          PROJECT_DIR=""
+          while IFS= read -r file; do
+            DIR="$(dirname "$file")"
+            if [ -f "$DIR/gradlew" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find . -type f \( -name settings.gradle -o -name settings.gradle.kts \) -not -path '*/.gradle/*' | sort)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::No se encontró gradlew junto a settings.gradle."
+            exit 1
+          fi
+
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Proyecto encontrado: $PROJECT_DIR"
+
+      - name: Preparar Gradle Wrapper
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
         run: |
-          chmod +x ./gradlew
-          sed -i 's/\r$//' ./gradlew
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
 
       - name: Diagnosticar Java y Gradle
         working-directory: ${{ steps.project.outputs.dir }}
-        shell: bash
         run: |
-          echo "JAVA_HOME=$JAVA_HOME"
           java -version
-          echo "Versión del wrapper:"
-          grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties
-          echo "Versión de Gradle:"
           ./gradlew --version
 
       - name: Compilar APK
         working-directory: ${{ steps.project.outputs.dir }}
-        shell: bash
-        env:
-          JAVA_OPTS: ""
-          GRADLE_OPTS: ""
-          JDK_JAVA_OPTIONS: ""
-          JAVA_TOOL_OPTIONS: ""
-        run: |
-          ./gradlew assembleDebug
+        run: ./gradlew assembleDebug
+
+      - name: Descargar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmbiorixPay-debug-apk
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
