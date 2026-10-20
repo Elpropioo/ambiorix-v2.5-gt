@@ -3,9 +3,7 @@ name: Build Ambiorix Pay APK
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
@@ -14,19 +12,18 @@ permissions:
 
 jobs:
   build:
-    name: Compile Android APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar Java
+      - name: Configurar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Encontrar proyecto Android
         id: project
@@ -36,9 +33,7 @@ jobs:
 
           while IFS= read -r file; do
             DIR="$(dirname "$file")"
-
-            if [ -f "$DIR/gradlew" ] || \
-               [ -f "$DIR/gradle/wrapper/gradle-wrapper.properties" ]; then
+            if [ -f "$DIR/gradlew" ]; then
               PROJECT_DIR="$DIR"
               break
             fi
@@ -48,34 +43,37 @@ jobs:
           \) -not -path '*/.gradle/*' | sort)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: No se encontró el proyecto Android."
-            echo "Comprueba que settings.gradle o settings.gradle.kts esté en el repositorio."
+            echo "::error::No se encontró settings.gradle junto con gradlew."
             exit 1
           fi
 
-          echo "Proyecto encontrado en: $PROJECT_DIR"
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Proyecto: $PROJECT_DIR"
 
-      - name: Dar permisos al Gradle Wrapper
+      - name: Diagnosticar Java y Gradle
         working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
         run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-          fi
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          echo "Versión del wrapper:"
+          grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties
+          echo "Versión de Java del wrapper:"
+          ./gradlew --version
 
       - name: Compilar APK
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
+        env:
+          JAVA_OPTS: ""
+          GRADLE_OPTS: ""
+          JDK_JAVA_OPTIONS: ""
+          JAVA_TOOL_OPTIONS: ""
         run: |
-          if [ -f gradlew ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "ERROR: Falta gradlew en la carpeta del proyecto."
-            echo "El repositorio debe incluir el Gradle Wrapper."
-            exit 1
-          fi
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
-      - name: Guardar APK
+      - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: AmbiorixPay-debug-apk
